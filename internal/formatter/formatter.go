@@ -101,3 +101,21 @@ func formatValues(d differ.Delta) string {
 func Join(lines []string) string {
 	return strings.Join(lines, "\n")
 }
+
+// Summary returns a single-line string describing the counts of added, removed,
+// and changed fields across the provided deltas. It is useful for compact
+// log output when full diff detail is not required.
+func Summary(deltas []differ.Delta) string {
+	var added, removed, changed int
+	for _, d := range deltas {
+		switch d.Type {
+		case differ.DeltaAdded:
+			added++
+		case differ.DeltaRemoved:
+			removed++
+		case differ.DeltaChanged:
+			changed++
+		}
+	}
+	return fmt.Sprintf("+%d -%d ~%d", added, removed, changed)
+}
