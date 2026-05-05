@@ -102,3 +102,16 @@ func TestLoad_FileNotFound(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestLoad_InvalidWindowSize(t *testing.T) {
+	p := writeConfig(t, `
+services:
+  - name: svc
+    path: /tmp/svc.log
+window_size: -1
+`)
+	_, err := config.Load(p)
+	if err == nil {
+		t.Fatal("expected error for negative window_size")
+	}
+}
