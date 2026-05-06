@@ -59,3 +59,17 @@ func TestFromConfig_DefaultMinDelta_UsesOne(t *testing.T) {
 		t.Errorf("expected MinDeltaCount=1, got %d", a.threshold.MinDeltaCount)
 	}
 }
+
+func TestFromConfig_NegativeMinDelta_UsesOne(t *testing.T) {
+	cfg := alertConfig(-5, "1s")
+	a, err := FromConfig(cfg, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if a == nil {
+		t.Fatal("expected non-nil alerter")
+	}
+	if a.threshold.MinDeltaCount != 1 {
+		t.Errorf("expected MinDeltaCount=1 for negative input, got %d", a.threshold.MinDeltaCount)
+	}
+}
