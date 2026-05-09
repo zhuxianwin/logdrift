@@ -1,33 +1,32 @@
 package ratelimit
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
-// ServiceConfig mirrors the rate-limit section of a service config entry.
-type ServiceConfig struct {
-	RatePerSec float64 `yaml:"rate_per_sec"`
-	Burst      float64 `yaml:"burst"`
+// ServiceConfig mirrors the subset of config.ServiceConfig relevant to rate limiting.
+type ServiceConfig interface {
+	GetRateLimit() float64
+	GetBurst() int
 }
 
-// DefaultRatePerSec is used when no rate is specified in config.
-const DefaultRatePerSec = 10.0
-
-// DefaultBurst is used when no burst is specified in config.
-const DefaultBurst = 5.0
-
-// FromServiceConfig builds a Limiter from a ServiceConfig, applying
-// defaults for zero-value fields.
+// FromServiceConfig constructs a Limiter from a service configuration.
+// Returns nil if the service has no rate-limit configured (rate == 0).
 func FromServiceConfig(cfg ServiceConfig) (*Limiter, error) {
-	rate := cfg.RatePerSec
-	if rate <= 0 {
-		rate = DefaultRatePerSec
+	rate := cfg.GetRateLimit()
+	if rate == 0 {
+		return nil, nil
 	}
-	burst := cfg.Burst
+
+	burst := cfg.GetBurst()
 	if burst <= 0 {
-		burst = DefaultBurst
+		burst = 1
 	}
-	l, err := New(rate, burst)
+
+	rl, err := New(rate, burst, func() time.Time { return time.Now() })
 	if err != nil {
-		return nil, fmt.Errorf("ratelimit.FromServiceConfig: %w", err)
+		return nil, fmt.Errorf("ratelimit: build from config: %w", err)
 	}
-	return l, nil
+	return rl, nil
 }

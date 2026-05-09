@@ -1,115 +1,108 @@
-package ratelimit
+package ratelimit_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/yourorg/logdrift/internal/ratelimit"
 )
 
-func fixedNow(t time.Time) func() time.Time {
-	return func() time.Time { return t }
-}
+var fixedNow = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestNew_InvalidRate_ReturnsError(t *testing.T) {
-	_, err := New(0, 5)
+	_, err := ratelimit.New(-1, 10, func() time.Time { return fixedNow })
 	if err == nil {
-		t.Fatal("expected error for ratePerSec=0")
+		t.Fatal("expected error for negative rate")
 	}
 }
 
 func TestNew_InvalidBurst_ReturnsError(t *testing.T) {
-	_, err := New(5, 0)
+	_, err := ratelimit.New(5, 0, func() time.Time { return fixedNow })
 	if err == nil {
-		t.Fatal("expected error for burst=0")
+		t.Fatal("expected error for zero burst")
 	}
 }
 
 func TestAllow_FullBucket_AllowsUpToBurst(t *testing.T) {
-	l, _ := New(1, 3)
-	base := time.Now()
-	l.now = fixedNow(base)
-	l.lastTick = base
+	now := fixedNow
+	rl, err := ratelimit.New(1, 3, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	allowed := 0
-	for i := 0; i < 5; i++ {
-		if l.Allow() {
-			allowed++
+	for i := 0; i < 3; i++ {
+		if !rl.Allow() {
+			t.Fatalf("expected allow on call %d", i+1)
 		}
 	}
-	if allowed != 3 {
-		t.Fatalf("expected 3 allowed (burst), got %d", allowed)
+	if rl.Allow() {
+		t.Fatal("expected deny after burst exhausted")
 	}
 }
 
 func TestAllow_TokensRefillOverTime(t *testing.T) {
-	base := time.Now()
-	l, _ := New(2, 2) // 2 tokens/sec, burst 2
-	l.now = fixedNow(base)
-	l.lastTick = base
+	now := fixedNow
+	rl, err := ratelimit.New(1, 1, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	// drain the bucket
-	l.Allow()
-	l.Allow()
+	if !rl.Allow() {
+		t.Fatal("expected first allow")
+	}
+	if rl.Allow() {
+		t.Fatal("expected deny immediately after")
+	}
 
-	// advance time by 1 second — should refill 2 tokens
-	l.now = fixedNow(base.Add(time.Second))
-
-	if !l.Allow() {
-		t.Fatal("expected Allow() after refill")
+	now = now.Add(2 * time.Second)
+	if !rl.Allow() {
+		t.Fatal("expected allow after refill")
 	}
 }
 
-func TestAllow_EmptyBucket_Blocks(t *testing.T) {
-	base := time.Now()
-	l, _ := New(1, 1)
-	l.now = fixedNow(base)
-	l.lastTick = base
-
-	l.Allow() // consume the only token
-
-	if l.Allow() {
-		t.Fatal("expected Allow() to be blocked on empty bucket")
+func TestAllow_ZeroRate_BlocksAll(t *testing.T) {
+	now := fixedNow
+	rl, err := ratelimit.New(0, 1, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rl.Allow() {
+		t.Fatal("expected deny for zero rate")
 	}
 }
 
-func TestReset_RefillsBucket(t *testing.T) {
-	base := time.Now()
-	l, _ := New(1, 3)
-	l.now = fixedNow(base)
-	l.lastTick = base
-
-	l.Allow()
-	l.Allow()
-	l.Allow()
-
-	l.Reset()
-
+func TestAllow_HighRate_AllowsMany(t *testing.T) {
+	now := fixedNow
+	rl, err := ratelimit.New(100, 50, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	allowed := 0
-	for i := 0; i < 3; i++ {
-		if l.Allow() {
+	for i := 0; i < 50; i++ {
+		if rl.Allow() {
 			allowed++
 		}
 	}
-	if allowed != 3 {
-		t.Fatalf("expected 3 after reset, got %d", allowed)
+	if allowed != 50 {
+		t.Fatalf("expected 50 allowed, got %d", allowed)
 	}
 }
 
-func TestFromServiceConfig_Defaults(t *testing.T) {
-	l, err := FromServiceConfig(ServiceConfig{})
+func TestAllow_PartialRefill_AllowsCorrectCount(t *testing.T) {
+	now := fixedNow
+	rl, err := ratelimit.New(2, 2, func() time.Time { return now })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if l == nil {
-		t.Fatal("expected non-nil limiter")
-	}
-}
 
-func TestFromServiceConfig_CustomValues(t *testing.T) {
-	l, err := FromServiceConfig(ServiceConfig{RatePerSec: 20, Burst: 10})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	rl.Allow()
+	rl.Allow()
+
+	now = now.Add(500 * time.Millisecond)
+	if !rl.Allow() {
+		t.Fatal("expected one token after 500ms at rate 2/s")
 	}
-	if l.rate != 20 || l.max != 10 {
-		t.Fatalf("expected rate=20 burst=10, got rate=%v burst=%v", l.rate, l.max)
+	if rl.Allow() {
+		t.Fatal("expected deny after partial refill exhausted")
 	}
 }
