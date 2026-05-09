@@ -51,3 +51,30 @@ func TestFromConfig_InvalidTTL_ReturnsError(t *testing.T) {
 		t.Fatal("expected error for invalid ttl")
 	}
 }
+
+func TestFromConfig_MultipleTTLFormats(t *testing.T) {
+	tests := []struct {
+		ttl   string
+		valid bool
+	}{
+		{"30s", true},
+		{"5m", true},
+		{"2h", true},
+		{"1h30m", true},
+		{"0", true},
+		{"abc", false},
+		{"-1m", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.ttl, func(t *testing.T) {
+			cfg := &Config{Field: "trace_id", TTL: tc.ttl}
+			_, err := FromConfig(cfg)
+			if tc.valid && err != nil {
+				t.Errorf("expected no error for TTL %q, got: %v", tc.ttl, err)
+			}
+			if !tc.valid && err == nil {
+				t.Errorf("expected error for TTL %q, got nil", tc.ttl)
+			}
+		})
+	}
+}
